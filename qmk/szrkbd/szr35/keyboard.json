@@ -5,6 +5,7 @@
     "url": "https://github.com/diegorodriguezv/szr35",
     "bootloader": "stm32-dfu",
     "processor": "STM32F401",
+    "board": "BLACKPILL_STM32_F401",
     "usb": {
         "pid": "0x45D4",
         "vid": "0x3601",
@@ -15,7 +16,7 @@
         "extrakey": true,
         "mousekey": true,
         "nkro": true,
-        "rgb_matrix": true,
+        "rgb_matrix": true
     },
     "dynamic_keymap": {
         "layer_count": 9

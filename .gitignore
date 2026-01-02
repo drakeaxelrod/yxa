@@ -9,6 +9,9 @@ __pycache__/
 dist/
 build/
 
+# QMK build cache (cloned by flake build command)
+# Located in ~/.cache/szr35-vial-qmk/ (not in repo)
+
 # Nix
 result
 result-*
