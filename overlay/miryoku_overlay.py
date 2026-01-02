@@ -10,6 +10,7 @@ import sys
 import os
 import threading
 import select
+import subprocess
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -39,6 +40,7 @@ FINGER_COLORS = {
 
 THUMB_COLOR = "#4488FF"
 DIM_COLOR = "#666666"
+MOD_COLOR = "#AAAAAA"
 
 LAYER_COLORS = {
     0: "#FFFFFF",  # Base - white
@@ -79,14 +81,14 @@ def simplify_keycode(kc):
     import re
 
     if kc == -1 or kc == "KC_NO":
-        return "·"
+        return ""
     if kc == "KC_TRNS":
         return "▽"
 
     kc = str(kc)
     kc = re.sub(r'^KC_', '', kc)
 
-    # Mod-taps
+    # Mod-taps - show the key
     if m := re.match(r'(\w+)_T\(KC_(\w+)\)', kc):
         mod, key = m.groups()
         return key
@@ -131,14 +133,32 @@ def simplify_keycode(kc):
     return kc[:3] if len(kc) > 3 else kc
 
 
+def get_mod_from_keycode(kc):
+    """Extract modifier from mod-tap keycode"""
+    import re
+    kc = str(kc)
+
+    if m := re.match(r'(\w+)_T\(KC_\w+\)', kc):
+        mod = m.group(1)
+        mod_map = {
+            'LGUI': '⌘', 'RGUI': '⌘',
+            'LALT': '⌥', 'RALT': 'AGr',
+            'LCTL': '⌃', 'RCTL': '⌃',
+            'LSFT': '⇧', 'RSFT': '⇧',
+        }
+        return mod_map.get(mod, '')
+    return ''
+
+
 class KeyLabel(QLabel):
-    """A styled key label"""
-    def __init__(self, text="", color="#FFFFFF", dimmed=False):
+    """A styled key label with optional modifier indicator"""
+    def __init__(self, text="", color="#FFFFFF", dimmed=False, mod=""):
         super().__init__(text)
         self.base_color = color
         self.dimmed = dimmed
+        self.mod = mod
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setMinimumSize(45, 40)
+        self.setMinimumSize(55, 50)
         self.update_style()
 
     def update_style(self):
@@ -150,7 +170,7 @@ class KeyLabel(QLabel):
                 color: {color};
                 border: 1px solid {color};
                 border-radius: 6px;
-                font-size: 14px;
+                font-size: 16px;
                 font-weight: bold;
                 padding: 4px;
             }}
@@ -160,10 +180,16 @@ class KeyLabel(QLabel):
         self.dimmed = dimmed
         self.update_style()
 
-    def set_text_and_color(self, text, color, dimmed=False):
-        self.setText(text)
+    def set_text_and_color(self, text, color, dimmed=False, mod=""):
+        # Show mod + key if mod exists
+        if mod and text:
+            display = f"{mod}\n{text}"
+        else:
+            display = text
+        self.setText(display)
         self.base_color = color
         self.dimmed = dimmed
+        self.mod = mod
         self.update_style()
 
 
@@ -269,107 +295,8 @@ class VialHIDMonitor(QObject):
                     pass
 
 
-class KeyboardMonitor(QObject):
-    """Monitor keyboard events via evdev to detect layer changes based on key signatures"""
-    layer_changed = pyqtSignal(int)
-
-    def __init__(self, device_filter=None):
-        super().__init__()
-        self.running = False
-        self.thread = None
-        self.device_filter = device_filter
-        self.current_layer = 0
-        self.last_layer_change = 0
-        self.held_keys = set()
-
-        # Keys that indicate specific layers (evdev key codes)
-        self.layer_signatures = {
-            1: {103, 108, 105, 106, 102, 107, 104, 109},  # NAV: arrows, home/end/pgup/pgdn
-            2: set(),  # MOUSE - can't detect
-            3: {165, 163, 164, 166, 113, 114, 115},  # MEDIA: media keys
-            4: {71, 72, 73, 75, 76, 77, 79, 80, 81, 82, 83},  # NUM: keypad
-            5: set(),  # SYM - can't detect (shifted chars)
-            6: {59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 87, 88},  # FUN: F1-F12
-        }
-
-        self.modifier_codes = {29, 97, 56, 100, 42, 54, 125, 126}
-
-    def start(self):
-        self.running = True
-        self.thread = threading.Thread(target=self._monitor_loop, daemon=True)
-        self.thread.start()
-
-    def stop(self):
-        self.running = False
-
-    def _monitor_loop(self):
-        try:
-            import evdev
-            from evdev import ecodes
-        except ImportError:
-            print("evdev not installed. Layer detection disabled.")
-            return
-
-        devices = []
-        for path in evdev.list_devices():
-            dev = evdev.InputDevice(path)
-            if ecodes.EV_KEY in dev.capabilities():
-                if self.device_filter:
-                    if self.device_filter.lower() in dev.name.lower():
-                        devices.append(dev)
-                        print(f"Monitoring: {dev.name}")
-                else:
-                    devices.append(dev)
-
-        if not devices:
-            print(f"No devices matching '{self.device_filter}' found." if self.device_filter else "No keyboard devices found.")
-            return
-
-        import select
-
-        while self.running:
-            r, w, x = select.select(devices, [], [], 0.1)
-            for dev in r:
-                try:
-                    for event in dev.read():
-                        if event.type == ecodes.EV_KEY:
-                            self._handle_key_event(event.code, event.value)
-                except Exception:
-                    pass
-
-    def _handle_key_event(self, code, value):
-        now = time.time()
-
-        if value == 1:
-            self.held_keys.add(code)
-        elif value == 0:
-            self.held_keys.discard(code)
-
-        if code in self.modifier_codes:
-            return
-
-        detected_layer = 0
-        for layer, sig_keys in self.layer_signatures.items():
-            if self.held_keys & sig_keys:
-                detected_layer = layer
-                break
-
-        if detected_layer != self.current_layer:
-            if detected_layer > 0 or (now - self.last_layer_change > 0.3):
-                self.current_layer = detected_layer
-                self.last_layer_change = now
-                self.layer_changed.emit(detected_layer)
-
-        if value == 0 and self.current_layer != 0:
-            has_sig_key = any(self.held_keys & sig for sig in self.layer_signatures.values())
-            if not has_sig_key and (now - self.last_layer_change > 0.1):
-                self.current_layer = 0
-                self.last_layer_change = now
-                self.layer_changed.emit(0)
-
-
 class MiryokuOverlay(QWidget):
-    def __init__(self, vil_file, device_filter=None, use_hid=True, use_evdev=True):
+    def __init__(self, vil_file, use_hid=True):
         super().__init__()
         self.vil_file = vil_file
         self.layout_data = self.load_layout()
@@ -381,18 +308,12 @@ class MiryokuOverlay(QWidget):
         self.init_ui()
         self.setup_hotreload()
 
-        # Try HID first (most accurate), fall back to evdev
+        # Try HID (most accurate)
         if use_hid:
             hid_monitor = VialHIDMonitor()
             hid_monitor.layer_changed.connect(self.set_layer)
             hid_monitor.start()
             self.monitors.append(hid_monitor)
-
-        if use_evdev:
-            evdev_monitor = KeyboardMonitor(device_filter=device_filter)
-            evdev_monitor.layer_changed.connect(self.set_layer)
-            evdev_monitor.start()
-            self.monitors.append(evdev_monitor)
 
     def load_layout(self):
         with open(self.vil_file) as f:
@@ -402,11 +323,11 @@ class MiryokuOverlay(QWidget):
     def init_ui(self):
         self.setWindowTitle("Miryoku Overlay")
 
+        # Set window flags for always-on-top
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool |
-            Qt.WindowType.X11BypassWindowManagerHint
+            Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
@@ -417,7 +338,7 @@ class MiryokuOverlay(QWidget):
         container = QFrame()
         container.setStyleSheet("""
             QFrame {
-                background-color: rgba(20, 20, 20, 0.85);
+                background-color: rgba(20, 20, 20, 0.92);
                 border-radius: 12px;
             }
         """)
@@ -427,20 +348,20 @@ class MiryokuOverlay(QWidget):
 
         self.layer_label = QLabel("BASE")
         self.layer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.layer_label.setFont(QFont("monospace", 18, QFont.Weight.Bold))
-        self.layer_label.setStyleSheet("color: #FFFFFF; padding: 5px;")
+        self.layer_label.setFont(QFont("monospace", 20, QFont.Weight.Bold))
+        self.layer_label.setStyleSheet("color: #FFFFFF; padding: 8px;")
         container_layout.addWidget(self.layer_label)
 
         keyboard_widget = QWidget()
         keyboard_layout = QVBoxLayout(keyboard_widget)
-        keyboard_layout.setSpacing(4)
+        keyboard_layout.setSpacing(5)
 
         self.key_labels = []
 
         for row in range(4):
             row_widget = QWidget()
             row_layout = QHBoxLayout(row_widget)
-            row_layout.setSpacing(4)
+            row_layout.setSpacing(5)
             row_layout.setContentsMargins(0, 0, 0, 0)
 
             row_labels = []
@@ -452,7 +373,7 @@ class MiryokuOverlay(QWidget):
                     row_labels.append(label)
 
                 spacer = QLabel()
-                spacer.setFixedWidth(30)
+                spacer.setFixedWidth(40)
                 row_layout.addWidget(spacer)
 
                 for col in range(5):
@@ -467,7 +388,7 @@ class MiryokuOverlay(QWidget):
                     row_labels.append(label)
 
                 spacer = QLabel()
-                spacer.setFixedWidth(30)
+                spacer.setFixedWidth(40)
                 row_layout.addWidget(spacer)
 
                 for col in range(3):
@@ -483,19 +404,19 @@ class MiryokuOverlay(QWidget):
 
         layer_bar = QWidget()
         layer_bar_layout = QHBoxLayout(layer_bar)
-        layer_bar_layout.setSpacing(4)
+        layer_bar_layout.setSpacing(5)
 
         self.layer_buttons = []
         for i, name in enumerate(LAYER_NAMES):
             btn = QLabel(name[:3])
             btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            btn.setFixedSize(40, 25)
+            btn.setFixedSize(50, 28)
             btn.setStyleSheet(f"""
                 QLabel {{
                     background-color: rgba(50, 50, 50, 0.8);
                     color: {DIM_COLOR};
                     border-radius: 4px;
-                    font-size: 11px;
+                    font-size: 12px;
                 }}
             """)
             layer_bar_layout.addWidget(btn)
@@ -505,7 +426,7 @@ class MiryokuOverlay(QWidget):
 
         help_label = QLabel("0-7: layers | Drag to move | Q: quit")
         help_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        help_label.setStyleSheet("color: #666666; font-size: 10px; padding: 2px;")
+        help_label.setStyleSheet("color: #666666; font-size: 11px; padding: 4px;")
         container_layout.addWidget(help_label)
 
         main_layout.addWidget(container)
@@ -523,6 +444,16 @@ class MiryokuOverlay(QWidget):
         self.reload_timer = QTimer(self)
         self.reload_timer.timeout.connect(self.check_file_changes)
         self.reload_timer.start(500)
+
+        # Also periodically raise the window to stay on top
+        self.raise_timer = QTimer(self)
+        self.raise_timer.timeout.connect(self.ensure_on_top)
+        self.raise_timer.start(1000)
+
+    def ensure_on_top(self):
+        """Ensure window stays on top"""
+        self.raise_()
+        self.activateWindow()
 
     def check_file_changes(self):
         try:
@@ -543,7 +474,7 @@ class MiryokuOverlay(QWidget):
         active_hand = LAYER_ACTIVE_HAND.get(self.current_layer, "both")
 
         self.layer_label.setText(LAYER_NAMES[self.current_layer])
-        self.layer_label.setStyleSheet(f"color: {layer_color}; padding: 5px;")
+        self.layer_label.setStyleSheet(f"color: {layer_color}; padding: 8px;")
 
         for i, btn in enumerate(self.layer_buttons):
             if i == self.current_layer:
@@ -552,7 +483,7 @@ class MiryokuOverlay(QWidget):
                         background-color: {LAYER_COLORS.get(i, '#FFFFFF')};
                         color: #000000;
                         border-radius: 4px;
-                        font-size: 11px;
+                        font-size: 12px;
                         font-weight: bold;
                     }}
                 """)
@@ -562,12 +493,17 @@ class MiryokuOverlay(QWidget):
                         background-color: rgba(50, 50, 50, 0.8);
                         color: {DIM_COLOR};
                         border-radius: 4px;
-                        font-size: 11px;
+                        font-size: 12px;
                     }}
                 """)
 
         left_rows = layer[0:4]
         right_rows = layer[4:8]
+
+        # Get base layer for mod-tap reference
+        base_layer = self.layout_data[0]
+        base_left = base_layer[0:4]
+        base_right = base_layer[4:8]
 
         for row_idx in range(3):
             left = left_rows[row_idx]
@@ -575,17 +511,30 @@ class MiryokuOverlay(QWidget):
 
             for col in range(5):
                 label = self.key_labels[row_idx][col]
-                text = simplify_keycode(left[col])
+                kc = left[col]
+                text = simplify_keycode(kc)
+
+                # Get modifier from base layer if on base, or show it on other layers
+                mod = ""
+                if self.current_layer == 0:
+                    mod = get_mod_from_keycode(kc)
+
                 color = FINGER_COLORS.get(col, "#FFFFFF")
-                dimmed = (active_hand == "right" and text != "·") or text == "·"
-                label.set_text_and_color(text, color, dimmed)
+                dimmed = (active_hand == "right" and text) or not text
+                label.set_text_and_color(text, color, dimmed, mod)
 
             for col in range(5):
                 label = self.key_labels[row_idx][col + 5]
-                text = simplify_keycode(right[col])
+                kc = right[col]
+                text = simplify_keycode(kc)
+
+                mod = ""
+                if self.current_layer == 0:
+                    mod = get_mod_from_keycode(kc)
+
                 color = FINGER_COLORS.get(col + 5, "#FFFFFF")
-                dimmed = (active_hand == "left" and text != "·") or text == "·"
-                label.set_text_and_color(text, color, dimmed)
+                dimmed = (active_hand == "left" and text) or not text
+                label.set_text_and_color(text, color, dimmed, mod)
 
         left_thumbs = [k for k in left_rows[3] if k != -1]
         right_thumbs = [k for k in right_rows[3] if k != -1]
@@ -593,14 +542,14 @@ class MiryokuOverlay(QWidget):
         for i, key in enumerate(left_thumbs):
             if i < len(self.key_labels[3]):
                 text = simplify_keycode(key)
-                dimmed = (active_hand == "right" and text != "·") or text == "·"
+                dimmed = (active_hand == "right" and text) or not text
                 self.key_labels[3][i].set_text_and_color(text, THUMB_COLOR, dimmed)
 
         for i, key in enumerate(right_thumbs):
             idx = i + 3
             if idx < len(self.key_labels[3]):
                 text = simplify_keycode(key)
-                dimmed = (active_hand == "left" and text != "·") or text == "·"
+                dimmed = (active_hand == "left" and text) or not text
                 self.key_labels[3][idx].set_text_and_color(text, THUMB_COLOR, dimmed)
 
     def set_layer(self, layer_num):
@@ -646,12 +595,8 @@ def main():
     parser = argparse.ArgumentParser(description='Miryoku Layout Overlay')
     parser.add_argument('--file', '-f', type=str, default=str(VIL_FILE),
                         help='Path to .vil file')
-    parser.add_argument('--device', '-d', type=str, default=None,
-                        help='Filter to keyboard device containing this name (for evdev). Auto-detects if not specified.')
     parser.add_argument('--no-hid', action='store_true',
                         help='Disable HID layer detection')
-    parser.add_argument('--no-evdev', action='store_true',
-                        help='Disable evdev key detection')
     args = parser.parse_args()
 
     vil_file = Path(args.file)
@@ -670,11 +615,10 @@ def main():
 
     overlay = MiryokuOverlay(
         vil_file,
-        device_filter=args.device,
-        use_hid=not args.no_hid,
-        use_evdev=not args.no_evdev
+        use_hid=not args.no_hid
     )
     overlay.show()
+    overlay.raise_()
 
     sys.exit(app.exec())
 
