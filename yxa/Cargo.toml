@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/firmware",
+    "crates/visual-guide",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["draxel"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/draxel/yxa"
+
+[profile.release]
+lto = true
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = false
+
+[profile.dev.package."*"]
+opt-level = 3
