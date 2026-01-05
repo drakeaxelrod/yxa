@@ -22,8 +22,8 @@
           extensions = [ "rust-src" "rustfmt" "clippy" ];
         };
 
-        # Visual guide package
-        yxaVisualGuide = pkgs.rustPlatform.buildRustPackage {
+        # Visual guide package (binary only)
+        yxaVisualGuideBin = pkgs.rustPlatform.buildRustPackage {
           pname = "yxa-visual-guide";
           version = "0.1.0";
           src = ./visual-guide;
@@ -47,6 +47,65 @@
           meta = with pkgs.lib; {
             description = "Yxa keyboard layout visual guide and trainer";
             license = licenses.mit;
+          };
+        };
+
+        # Desktop entry for the visual guide
+        desktopItem = pkgs.makeDesktopItem {
+          name = "yxa-visual-guide";
+          desktopName = "Yxa Visual Guide";
+          comment = "Yxa keyboard layout visual guide and trainer";
+          exec = "yxa-visual-guide";
+          icon = "yxa-visual-guide";
+          terminal = false;
+          type = "Application";
+          categories = [ "Utility" "Education" ];
+          keywords = [ "keyboard" "layout" "trainer" "miryoku" ];
+        };
+
+        # Full visual guide package with desktop integration
+        yxaVisualGuide = pkgs.stdenv.mkDerivation {
+          pname = "yxa-visual-guide";
+          version = "0.1.0";
+
+          src = ./assets;
+
+          nativeBuildInputs = with pkgs; [
+            librsvg
+            imagemagick
+          ];
+
+          dontBuild = true;
+
+          installPhase = ''
+            runHook preInstall
+
+            # Install binary
+            mkdir -p $out/bin
+            ln -s ${yxaVisualGuideBin}/bin/yxa-visual-guide $out/bin/yxa-visual-guide
+
+            # Install desktop entry
+            mkdir -p $out/share/applications
+            cp ${desktopItem}/share/applications/*.desktop $out/share/applications/
+
+            # Convert SVG to PNG icons at various sizes
+            for size in 16 24 32 48 64 128 256 512; do
+              mkdir -p $out/share/icons/hicolor/''${size}x''${size}/apps
+              ${pkgs.librsvg}/bin/rsvg-convert -w $size -h $size $src/logo.svg \
+                -o $out/share/icons/hicolor/''${size}x''${size}/apps/yxa-visual-guide.png
+            done
+
+            # Install scalable SVG icon
+            mkdir -p $out/share/icons/hicolor/scalable/apps
+            cp $src/logo.svg $out/share/icons/hicolor/scalable/apps/yxa-visual-guide.svg
+
+            runHook postInstall
+          '';
+
+          meta = with pkgs.lib; {
+            description = "Yxa keyboard layout visual guide and trainer";
+            license = licenses.mit;
+            mainProgram = "yxa-visual-guide";
           };
         };
 

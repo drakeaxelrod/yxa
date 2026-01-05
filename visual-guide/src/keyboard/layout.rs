@@ -412,7 +412,7 @@ mod tests {
     fn test_simplify_layer_tap() {
         assert_eq!(
             simplify_keycode(&Keycode::String("LT(1,KC_SPACE)".into())),
-            "󱁐/L1"
+            "Spc/L1"
         );
     }
 }
