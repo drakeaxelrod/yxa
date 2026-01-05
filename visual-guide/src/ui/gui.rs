@@ -546,8 +546,8 @@ impl App {
             for row_idx in 0..3 {
                 let label = self.get_key_label(1, row_idx, col);
                 let pressed = self.is_key_pressed_at(1, row_idx, col);
-                // Use column index for color (5-9 for right hand, mirrored)
-                col_elements.push(self.render_key(label, pressed, 9 - col));
+                // Use column index for color (5-9 for right hand: inner=5, index=6, middle=7, ring=8, pinky=9)
+                col_elements.push(self.render_key(label, pressed, col + 5));
                 if row_idx < 2 {
                     col_elements.push(Space::with_height(KEY_GAP).into());
                 }
