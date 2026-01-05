@@ -224,19 +224,14 @@ impl App {
                 }
             }
             Message::HidTick => {
-                // Poll HID for all events (layer changes and keypresses)
-                // Collect events first to avoid borrow conflicts
-                let events: Vec<HidEvent> = if let Some(ref mut monitor) = self.hid_monitor {
-                    let mut evts = Vec::new();
-                    while let Some(event) = monitor.poll_event() {
-                        evts.push(event);
-                    }
-                    evts
+                // Poll HID for all buffered events at once (more efficient, catches rapid keypresses)
+                let events = if let Some(ref mut monitor) = self.hid_monitor {
+                    monitor.poll_all_events()
                 } else {
                     Vec::new()
                 };
 
-                // Process collected events
+                // Process all collected events
                 for event in events {
                     match event {
                         HidEvent::LayerChange(layer) => {
@@ -249,6 +244,29 @@ impl App {
                         HidEvent::KeyRelease(key_event) => {
                             self.pressed_keys.remove(&(key_event.row, key_event.col));
                             self.update_modifier_state(key_event.row, key_event.col, false);
+                        }
+                        HidEvent::CapsWordState(active) => {
+                            // Could add visual indicator for Caps Word
+                            let _ = active; // TODO: Add caps word indicator to UI
+                        }
+                        HidEvent::ModifierState(mods) => {
+                            // Update modifier state from firmware
+                            self.shift_held = (mods & 0x02) != 0 || (mods & 0x20) != 0;
+                            self.ctrl_held = (mods & 0x01) != 0 || (mods & 0x10) != 0;
+                            self.alt_held = (mods & 0x04) != 0 || (mods & 0x40) != 0;
+                            self.gui_held = (mods & 0x08) != 0 || (mods & 0x80) != 0;
+                        }
+                        HidEvent::FullState { layer, caps_word: _, modifiers, pressed_keys } => {
+                            // Full state sync from firmware
+                            self.current_layer = layer as usize;
+                            self.shift_held = (modifiers & 0x02) != 0 || (modifiers & 0x20) != 0;
+                            self.ctrl_held = (modifiers & 0x01) != 0 || (modifiers & 0x10) != 0;
+                            self.alt_held = (modifiers & 0x04) != 0 || (modifiers & 0x40) != 0;
+                            self.gui_held = (modifiers & 0x08) != 0 || (modifiers & 0x80) != 0;
+                            self.pressed_keys.clear();
+                            for (row, col) in pressed_keys {
+                                self.pressed_keys.insert((row, col));
+                            }
                         }
                     }
                 }
@@ -1256,8 +1274,9 @@ impl App {
         ];
 
         // Add HID polling if connected - this handles layer changes and keypress highlighting
+        // Using 4ms (250 Hz) for better responsiveness to quick keypresses
         if self.hid_monitor.is_some() {
-            subs.push(time::every(Duration::from_millis(16)).map(|_| Message::HidTick));
+            subs.push(time::every(Duration::from_millis(4)).map(|_| Message::HidTick));
         }
 
         Subscription::batch(subs)

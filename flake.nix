@@ -151,6 +151,8 @@
 
             echo "Fetching submodules..."
             docker run --rm \
+              --user "$(id -u):$(id -g)" \
+              -e HOME=/qmk_firmware \
               -v "$QMK_CACHE:/qmk_firmware" \
               -w /qmk_firmware \
               ghcr.io/qmk/qmk_cli:latest \
@@ -163,6 +165,8 @@
             if [ ! -f "$QMK_CACHE/lib/chibios/os/hal/hal.mk" ]; then
               echo "Submodules incomplete, fetching..."
               docker run --rm \
+                --user "$(id -u):$(id -g)" \
+                -e HOME=/qmk_firmware \
                 -v "$QMK_CACHE:/qmk_firmware" \
                 -w /qmk_firmware \
                 ghcr.io/qmk/qmk_cli:latest \
@@ -176,10 +180,12 @@
 
           echo "Building with Docker..."
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/qmk_firmware \
             -v "$QMK_CACHE:/qmk_firmware" \
             -w /qmk_firmware \
             ghcr.io/qmk/qmk_cli:latest \
-            /bin/bash -c "git config --global --add safe.directory /qmk_firmware && qmk compile -kb yxa -km $KEYMAP"
+            /bin/bash -c "git config --global --add safe.directory /qmk_firmware && make yxa:$KEYMAP"
 
           # Copy output
           mkdir -p "$FIRMWARE_DIR"
