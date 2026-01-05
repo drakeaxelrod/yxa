@@ -69,10 +69,11 @@
           version = "0.1.0";
 
           src = ./assets;
+          layoutSrc = ./visual-guide/layouts;
 
           nativeBuildInputs = with pkgs; [
             librsvg
-            imagemagick
+            makeWrapper
           ];
 
           dontBuild = true;
@@ -80,9 +81,24 @@
           installPhase = ''
             runHook preInstall
 
-            # Install binary
+            # Install wrapped binary that uses bundled layout
             mkdir -p $out/bin
-            ln -s ${yxaVisualGuideBin}/bin/yxa-visual-guide $out/bin/yxa-visual-guide
+            makeWrapper ${yxaVisualGuideBin}/bin/yxa-visual-guide $out/bin/yxa-visual-guide \
+              --add-flags "--file $out/share/yxa/layouts/miryoku-kbd-layout.vil" \
+              --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath [
+                pkgs.libxkbcommon
+                pkgs.libGL
+                pkgs.wayland
+                pkgs.xorg.libX11
+                pkgs.xorg.libXcursor
+                pkgs.xorg.libXrandr
+                pkgs.xorg.libXi
+                pkgs.vulkan-loader
+              ]}"
+
+            # Install layout files
+            mkdir -p $out/share/yxa/layouts
+            cp $layoutSrc/*.vil $out/share/yxa/layouts/
 
             # Install desktop entry
             mkdir -p $out/share/applications
