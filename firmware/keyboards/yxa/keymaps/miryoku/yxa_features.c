@@ -29,7 +29,12 @@ static uint8_t last_modifier_state = 0;
 static uint8_t event_batch[MAX_BATCH_EVENTS * 3];  // type, row, col per event
 static uint8_t batch_count = 0;
 static uint16_t last_batch_time = 0;
-#define BATCH_TIMEOUT_MS 2  // Flush batch after 2ms
+#define BATCH_TIMEOUT_MS 1  // Flush batch after 1ms (reduced for responsiveness)
+
+// Track pressed keys to avoid duplicate events
+#define MAX_PRESSED_KEYS 10
+static uint8_t pressed_keys[MAX_PRESSED_KEYS][2];  // row, col pairs
+static uint8_t pressed_key_count = 0;
 
 // Get effective layer (combines default layer with momentary layers)
 static uint8_t get_effective_layer(void) {
@@ -59,8 +64,55 @@ static void flush_event_batch(void) {
     }
 }
 
+// Check if a key is in our pressed tracking array
+static bool is_key_tracked(uint8_t row, uint8_t col) {
+    for (uint8_t i = 0; i < pressed_key_count; i++) {
+        if (pressed_keys[i][0] == row && pressed_keys[i][1] == col) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Add key to pressed tracking array
+static void track_key_press(uint8_t row, uint8_t col) {
+    if (!is_key_tracked(row, col) && pressed_key_count < MAX_PRESSED_KEYS) {
+        pressed_keys[pressed_key_count][0] = row;
+        pressed_keys[pressed_key_count][1] = col;
+        pressed_key_count++;
+    }
+}
+
+// Remove key from pressed tracking array
+static void track_key_release(uint8_t row, uint8_t col) {
+    for (uint8_t i = 0; i < pressed_key_count; i++) {
+        if (pressed_keys[i][0] == row && pressed_keys[i][1] == col) {
+            // Shift remaining keys down
+            for (uint8_t j = i; j < pressed_key_count - 1; j++) {
+                pressed_keys[j][0] = pressed_keys[j + 1][0];
+                pressed_keys[j][1] = pressed_keys[j + 1][1];
+            }
+            pressed_key_count--;
+            return;
+        }
+    }
+}
+
 // Add event to batch or flush and send immediately
 static void add_event_to_batch(uint8_t type, uint8_t row, uint8_t col) {
+    // Deduplicate: don't send press if already pressed, or release if not pressed
+    if (type == MSG_KEY_PRESS) {
+        if (is_key_tracked(row, col)) {
+            return;  // Already pressed, skip duplicate
+        }
+        track_key_press(row, col);
+    } else if (type == MSG_KEY_RELEASE) {
+        if (!is_key_tracked(row, col)) {
+            return;  // Not tracked as pressed, skip
+        }
+        track_key_release(row, col);
+    }
+
     // If batch is full, flush first
     if (batch_count >= MAX_BATCH_EVENTS) {
         flush_event_batch();
@@ -72,6 +124,11 @@ static void add_event_to_batch(uint8_t type, uint8_t row, uint8_t col) {
     event_batch[batch_count * 3 + 2] = col;
     batch_count++;
     last_batch_time = timer_read();
+
+    // For press events, flush immediately to ensure visual guide shows it right away
+    if (type == MSG_KEY_PRESS) {
+        flush_event_batch();
+    }
 }
 
 // Send full state to host
@@ -137,6 +194,17 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     return true;
 }
 
+// Post-process hook - catches any events that might be delayed by tap-hold processing
+void post_process_record_user(uint16_t keycode, keyrecord_t *record) {
+    // The deduplication in add_event_to_batch will prevent double-sending
+    // This serves as a safety net for mod-tap and other delayed key events
+    uint8_t type = record->event.pressed ? MSG_KEY_PRESS : MSG_KEY_RELEASE;
+    uint8_t row = record->event.key.row;
+    uint8_t col = record->event.key.col;
+
+    add_event_to_batch(type, row, col);
+}
+
 // Handle HID requests from host
 bool raw_hid_receive_kb(uint8_t *data, uint8_t length) {
     switch (data[0]) {
@@ -191,16 +259,6 @@ const uint8_t FINGER_COLORS[][3] = {
     {170, 255, 180}  // 4: thumb - blue
 };
 
-// Layer base colors (HSV) - prefixed to avoid conflicts with QMK defines
-#define YXA_CYAN       128, 255, 200
-#define YXA_GREEN      85, 255, 200
-#define YXA_PURPLE     213, 255, 200
-#define YXA_YELLOW     43, 255, 200
-#define YXA_RED        0, 255, 200
-#define YXA_BLUE       170, 255, 200
-#define YXA_ORANGE     21, 255, 200
-#define YXA_WHITE      0, 0, 200
-
 // Helper to set LED color from HSV
 static inline void set_led_hsv(uint8_t led, uint8_t h, uint8_t s, uint8_t v) {
     HSV hsv = {h, s, v};
@@ -220,106 +278,39 @@ bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
         return false;
     }
 
-    // For other layers, first set all LEDs to white then highlight active keys
-    for (uint8_t i = led_min; i < led_max && i < 36; i++) {
-        set_led_hsv(i, YXA_WHITE);
-    }
+    // For layers 3-9, color ALL keys in the layer's designated color
+    uint8_t h, s, v;
 
     switch (layer) {
-        case 3: // BUTTON - Clipboard (orange)
-            // Left hand: undo/cut/copy/paste on rows 0 and 2
-            for (uint8_t i = 0; i <= 4; i++) set_led_hsv(i, YXA_ORANGE);    // Row 0
-            for (uint8_t i = 10; i <= 14; i++) set_led_hsv(i, YXA_ORANGE);  // Row 2
-            // Right hand: same
-            for (uint8_t i = 18; i <= 22; i++) set_led_hsv(i, YXA_ORANGE);
-            for (uint8_t i = 28; i <= 32; i++) set_led_hsv(i, YXA_ORANGE);
-            // Thumbs: mouse buttons
-            set_led_hsv(15, YXA_PURPLE); set_led_hsv(16, YXA_PURPLE); set_led_hsv(17, YXA_PURPLE);
-            set_led_hsv(33, YXA_PURPLE); set_led_hsv(34, YXA_PURPLE); set_led_hsv(35, YXA_PURPLE);
-            // Home row: modifiers (white)
-            for (uint8_t i = 5; i <= 9; i++) set_led_hsv(i, YXA_WHITE);
-            for (uint8_t i = 23; i <= 27; i++) set_led_hsv(i, YXA_WHITE);
+        case 3:  // BUTTON - orange
+            h = 21; s = 255; v = 200;
             break;
+        case 4:  // NAV - cyan
+            h = 128; s = 255; v = 200;
+            break;
+        case 5:  // MOUSE - yellow
+            h = 43; s = 255; v = 200;
+            break;
+        case 6:  // MEDIA - purple
+            h = 213; s = 255; v = 200;
+            break;
+        case 7:  // NUM - blue
+            h = 170; s = 255; v = 200;
+            break;
+        case 8:  // SYM - green
+            h = 85; s = 255; v = 200;
+            break;
+        case 9:  // FUN - red
+            h = 0; s = 255; v = 200;
+            break;
+        default:
+            h = 0; s = 0; v = 200;  // white fallback
+            break;
+    }
 
-        case 4: // NAV - Navigation (cyan)
-            // Left home row: modifiers
-            for (uint8_t i = 5; i <= 9; i++) set_led_hsv(i, YXA_WHITE);
-            // Right hand: arrows on home row (LEDs 23-27)
-            set_led_hsv(23, YXA_CYAN);  // CapsWord
-            set_led_hsv(24, YXA_CYAN);  // Left
-            set_led_hsv(25, YXA_CYAN);  // Down
-            set_led_hsv(26, YXA_CYAN);  // Up
-            set_led_hsv(27, YXA_CYAN);  // Right
-            // Right bottom row: Home/End/PgUp/PgDn
-            for (uint8_t i = 28; i <= 32; i++) set_led_hsv(i, YXA_BLUE);
-            // Right top row: clipboard
-            for (uint8_t i = 18; i <= 22; i++) set_led_hsv(i, YXA_ORANGE);
-            // Right thumbs: Enter/Bspc/Del
-            set_led_hsv(33, YXA_GREEN); set_led_hsv(34, YXA_GREEN); set_led_hsv(35, YXA_GREEN);
-            break;
-
-        case 5: // MOUSE (green)
-            // Left home row: modifiers
-            for (uint8_t i = 5; i <= 9; i++) set_led_hsv(i, YXA_WHITE);
-            // Right home row: mouse movement
-            for (uint8_t i = 23; i <= 27; i++) set_led_hsv(i, YXA_GREEN);
-            // Right bottom row: scroll wheel
-            for (uint8_t i = 28; i <= 32; i++) set_led_hsv(i, YXA_CYAN);
-            // Right top row: clipboard
-            for (uint8_t i = 18; i <= 22; i++) set_led_hsv(i, YXA_ORANGE);
-            // Right thumbs: mouse buttons
-            set_led_hsv(33, YXA_PURPLE); set_led_hsv(34, YXA_PURPLE); set_led_hsv(35, YXA_PURPLE);
-            break;
-
-        case 6: // MEDIA (purple)
-            // Left home row: modifiers
-            for (uint8_t i = 5; i <= 9; i++) set_led_hsv(i, YXA_WHITE);
-            // Right top row: RGB controls
-            for (uint8_t i = 18; i <= 22; i++) set_led_hsv(i, YXA_CYAN);
-            // Right home row: media prev/vol/next
-            for (uint8_t i = 23; i <= 27; i++) set_led_hsv(i, YXA_PURPLE);
-            // Right thumbs: stop/play/mute
-            set_led_hsv(33, YXA_PURPLE); set_led_hsv(34, YXA_PURPLE); set_led_hsv(35, YXA_PURPLE);
-            break;
-
-        case 7: // NUM - Number pad (yellow)
-            // Left top row: [ 7 8 9 ]
-            for (uint8_t i = 0; i <= 4; i++) set_led_hsv(i, YXA_YELLOW);
-            // Left home row: ; 4 5 6 =
-            for (uint8_t i = 5; i <= 9; i++) set_led_hsv(i, YXA_YELLOW);
-            // Left bottom row: ` 1 2 3 backslash
-            for (uint8_t i = 10; i <= 14; i++) set_led_hsv(i, YXA_YELLOW);
-            // Left thumbs: . 0 -
-            set_led_hsv(15, YXA_YELLOW); set_led_hsv(16, YXA_YELLOW); set_led_hsv(17, YXA_YELLOW);
-            // Right home row: modifiers
-            for (uint8_t i = 23; i <= 27; i++) set_led_hsv(i, YXA_WHITE);
-            break;
-
-        case 8: // SYM - Symbols (red)
-            // Left top row: { & * ( }
-            for (uint8_t i = 0; i <= 4; i++) set_led_hsv(i, YXA_RED);
-            // Left home row: : $ % ^ +
-            for (uint8_t i = 5; i <= 9; i++) set_led_hsv(i, YXA_RED);
-            // Left bottom row: ~ ! @ # |
-            for (uint8_t i = 10; i <= 14; i++) set_led_hsv(i, YXA_RED);
-            // Left thumbs: ( ) _
-            set_led_hsv(15, YXA_RED); set_led_hsv(16, YXA_RED); set_led_hsv(17, YXA_RED);
-            // Right home row: modifiers
-            for (uint8_t i = 23; i <= 27; i++) set_led_hsv(i, YXA_WHITE);
-            break;
-
-        case 9: // FUN - Function keys (blue)
-            // Left top row: F12 F7 F8 F9 PrtSc
-            for (uint8_t i = 0; i <= 4; i++) set_led_hsv(i, YXA_BLUE);
-            // Left home row: F11 F4 F5 F6 ScrLk
-            for (uint8_t i = 5; i <= 9; i++) set_led_hsv(i, YXA_BLUE);
-            // Left bottom row: F10 F1 F2 F3 Pause
-            for (uint8_t i = 10; i <= 14; i++) set_led_hsv(i, YXA_BLUE);
-            // Left thumbs: App Space Tab
-            set_led_hsv(15, YXA_CYAN); set_led_hsv(16, YXA_CYAN); set_led_hsv(17, YXA_CYAN);
-            // Right home row: modifiers
-            for (uint8_t i = 23; i <= 27; i++) set_led_hsv(i, YXA_WHITE);
-            break;
+    // Apply the solid color to all LEDs in range
+    for (uint8_t i = led_min; i < led_max && i < 36; i++) {
+        set_led_hsv(i, h, s, v);
     }
 
     return false;

@@ -240,7 +240,7 @@ fn simplify_keycode_str(kc: &str) -> String {
         "MNXT" => "󰒭",         // nf-md-skip_next
         "VOLU" => "󰕾",         // nf-md-volume_high
         "VOLD" => "󰖀",         // nf-md-volume_medium
-        "MPLY" => "󰐊",         // nf-md-play
+        "MPLY" => "󰐎",         // nf-md-play
         "MSTP" => "󰓛",         // nf-md-stop
         "MUTE" => "󰝟",         // nf-md-volume_off
         "RGB_TOG" => "󰌬",      // nf-md-led_on

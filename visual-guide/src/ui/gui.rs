@@ -42,11 +42,11 @@ const LAYER_COLORS: [(f32, f32, f32); 10] = [
     OD_FG,                 // 2 TAP - foreground (#abb2bf)
     OD_BORDER,             // 3 BUTTON - border/comment (#5c6370)
     (0.337, 0.714, 0.761), // 4 NAV - cyan (#56b6c2)
-    (0.596, 0.765, 0.475), // 5 MOUSE - green (#98c379)
+    (0.898, 0.753, 0.482), // 5 MOUSE - yellow (#e5c07b)
     (0.776, 0.471, 0.867), // 6 MEDIA - purple (#c678dd)
-    (0.898, 0.753, 0.482), // 7 NUM - yellow (#e5c07b)
-    (0.878, 0.424, 0.459), // 8 SYM - red (#e06c75)
-    (0.380, 0.686, 0.937), // 9 FUN - blue (#61afef)
+    (0.380, 0.686, 0.937), // 7 NUM - blue (#61afef)
+    (0.596, 0.765, 0.475), // 8 SYM - green (#98c379)
+    (0.878, 0.424, 0.459), // 9 FUN - red (#e06c75)
 ];
 
 #[derive(Debug, Clone)]
