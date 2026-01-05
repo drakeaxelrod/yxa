@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SZR35 Trainer
+Comment=Keyboard layout trainer overlay for SZR35
+Exec=szr35-trainer
+Icon=preferences-desktop-keyboard
+Terminal=false
+Categories=Utility;Accessibility;
+Keywords=keyboard;layout;trainer;szr35;overlay;
+StartupNotify=false

@@ -1,9 +1,0 @@
-# Firmware target configuration
-[target.thumbv7em-none-eabihf]
-runner = "probe-rs run --chip STM32F401CCUx"
-rustflags = [
-  "-C", "link-arg=-Tlink.x",
-]
-
-[env]
-DEFMT_LOG = "debug"

@@ -1,186 +1,244 @@
 {
-  description = "SZR35 Miryoku Keyboard - Complete Setup";
+  description = "Yxa Keyboard - Firmware and Visual Guide";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
+        overlays = [ (import rust-overlay) ];
+        pkgs = import nixpkgs {
+          inherit system overlays;
+        };
 
-        # Python environment for overlay and trainer
-        pythonEnv = pkgs.python3.withPackages (ps: with ps; [
-          pyqt6
-          hidapi
-          evdev
-          rich
-        ]);
+        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+          extensions = [ "rust-src" "rustfmt" "clippy" ];
+        };
 
-        # Build script as a Nix package
+        # Visual guide package
+        yxaVisualGuide = pkgs.rustPlatform.buildRustPackage {
+          pname = "yxa-visual-guide";
+          version = "0.1.0";
+          src = ./visual-guide;
+          cargoLock.lockFile = ./visual-guide/Cargo.lock;
+
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+          ];
+
+          buildInputs = with pkgs; [
+            libxkbcommon
+            libGL
+            wayland
+            xorg.libX11
+            xorg.libXcursor
+            xorg.libXrandr
+            xorg.libXi
+            vulkan-loader
+          ];
+
+          meta = with pkgs.lib; {
+            description = "Yxa keyboard layout visual guide and trainer";
+            license = licenses.mit;
+          };
+        };
+
+        # Firmware build script (vial-qmk with Docker)
         buildFirmware = pkgs.writeShellScriptBin "build-firmware" ''
           set -e
+          FIRMWARE_DIR="''${FIRMWARE_DIR:-$PWD/firmware}"
+          QMK_CACHE="$HOME/.cache/yxa-vial-qmk"
+          KEYMAP="''${1:-miryoku}"
 
-          REPO_DIR="''${1:-$PWD}"
-          QMK_CACHE="$HOME/.cache/szr35-vial-qmk"
+          echo "=== Building Yxa Firmware (keymap: $KEYMAP) ==="
 
-          echo "Building SZR35 Miryoku firmware..."
-
-          # Check Docker
           if ! command -v docker &> /dev/null; then
             echo "Error: Docker is not installed"
             exit 1
           fi
 
-          # Clone vial-qmk if needed (cached in home dir)
+          # Check if cache exists and is a valid git repo
+          if [ -d "$QMK_CACHE" ] && [ ! -d "$QMK_CACHE/.git" ]; then
+            echo "Cache is corrupted (not a git repo), removing..."
+            rm -rf "$QMK_CACHE"
+          fi
+
           if [ ! -d "$QMK_CACHE" ]; then
             echo "Cloning vial-qmk (first time, ~500MB)..."
             ${pkgs.git}/bin/git clone --depth 1 https://github.com/vial-kb/vial-qmk.git "$QMK_CACHE"
-            cd "$QMK_CACHE" && make git-submodule
+
+            echo "Fetching submodules..."
+            docker run --rm \
+              -v "$QMK_CACHE:/qmk_firmware" \
+              -w /qmk_firmware \
+              ghcr.io/qmk/qmk_cli:latest \
+              /bin/bash -c "git config --global --add safe.directory /qmk_firmware && git submodule update --init --recursive"
+          else
+            echo "Using cached vial-qmk at $QMK_CACHE"
+            echo "  (delete $QMK_CACHE to force fresh clone)"
+
+            # Check for missing submodules
+            if [ ! -f "$QMK_CACHE/lib/chibios/os/hal/hal.mk" ]; then
+              echo "Submodules incomplete, fetching..."
+              docker run --rm \
+                -v "$QMK_CACHE:/qmk_firmware" \
+                -w /qmk_firmware \
+                ghcr.io/qmk/qmk_cli:latest \
+                /bin/bash -c "git config --global --add safe.directory /qmk_firmware && git submodule update --init --recursive"
+            fi
           fi
 
-          # Sync keyboard files
-          echo "Syncing keyboard definition..."
-          rm -rf "$QMK_CACHE/keyboards/szrkbd"
-          cp -r "$REPO_DIR/qmk/szrkbd" "$QMK_CACHE/keyboards/"
+          echo "Syncing keyboard files..."
+          rm -rf "$QMK_CACHE/keyboards/yxa" 2>/dev/null || true
+          cp -r "$FIRMWARE_DIR/keyboards/yxa" "$QMK_CACHE/keyboards/"
 
-          # Build
-          echo "Running QMK build..."
+          echo "Building with Docker..."
           docker run --rm \
             -v "$QMK_CACHE:/qmk_firmware" \
             -w /qmk_firmware \
-            qmkfm/qmk_cli:latest \
-            make szrkbd/szr35:vial
+            ghcr.io/qmk/qmk_cli:latest \
+            /bin/bash -c "git config --global --add safe.directory /qmk_firmware && qmk compile -kb yxa -km $KEYMAP"
 
           # Copy output
-          mkdir -p "$REPO_DIR/firmware"
-          if [ -f "$QMK_CACHE/szrkbd_szr35_vial.bin" ]; then
-            cp "$QMK_CACHE/szrkbd_szr35_vial.bin" "$REPO_DIR/firmware/"
-          elif [ -f "$QMK_CACHE/.build/szrkbd_szr35_vial.bin" ]; then
-            cp "$QMK_CACHE/.build/szrkbd_szr35_vial.bin" "$REPO_DIR/firmware/"
+          mkdir -p "$FIRMWARE_DIR"
+          if [ -f "$QMK_CACHE/yxa_''${KEYMAP}.bin" ]; then
+            cp "$QMK_CACHE/yxa_''${KEYMAP}.bin" "$FIRMWARE_DIR/"
+            echo ""
+            echo "=== Build complete ==="
+            echo "Firmware: $FIRMWARE_DIR/yxa_''${KEYMAP}.bin"
+          elif [ -f "$QMK_CACHE/.build/yxa_''${KEYMAP}.bin" ]; then
+            cp "$QMK_CACHE/.build/yxa_''${KEYMAP}.bin" "$FIRMWARE_DIR/"
+            echo ""
+            echo "=== Build complete ==="
+            echo "Firmware: $FIRMWARE_DIR/yxa_''${KEYMAP}.bin"
+          else
+            echo ""
+            echo "Build complete - check $QMK_CACHE/.build/ for output"
           fi
-
-          echo ""
-          echo "Success! Firmware: firmware/szrkbd_szr35_vial.bin"
         '';
 
-        # Flash script with recovery info
+        # Flash firmware script
         flashFirmware = pkgs.writeShellScriptBin "flash-firmware" ''
-          FIRMWARE="''${1:-firmware/szrkbd_szr35_vial.bin}"
+          FIRMWARE="''${1:-firmware/yxa_miryoku.bin}"
 
-          echo "=== SZR35 Firmware Flash ==="
+          echo "=== Yxa Firmware Flash ==="
           echo ""
-          echo "IMPORTANT: Each half must be flashed separately!"
+
+          if [ ! -f "$FIRMWARE" ]; then
+            echo "Firmware file not found: $FIRMWARE"
+            echo "Run 'build-firmware' first, or specify path as argument."
+            exit 1
+          fi
+
+          echo "Firmware: $FIRMWARE"
+          echo ""
+          echo "IMPORTANT: Put keyboard in DFU mode first!"
           echo ""
           echo "To enter DFU mode:"
-          echo "  1. Locate boot pads: white square with 2 dots near thumb cluster"
-          echo "     (NOT the one opposite USB port, the one slightly to the side)"
-          echo "  2. Short the pads with tweezers/paperclip"
-          echo "  3. While shorted, plug in USB"
-          echo "  4. Release after connected"
-          echo ""
-          echo "If keyboard is bricked (no DFU detected):"
-          echo "  - Try different USB cables (data cable, not charge-only)"
-          echo "  - Hold boot pads for full 5 seconds while connecting"
-          echo "  - Check: lsusb | grep -i stm"
+          echo "  1. Hold BOOT button on BlackPill"
+          echo "  2. While holding, plug in USB (or tap RESET)"
+          echo "  3. Release BOOT button"
           echo ""
 
-          # Check for DFU device
-          if ! lsusb | grep -qi "0483:df11\|STM.*DFU"; then
+          if ! ${pkgs.usbutils}/bin/lsusb | grep -qi "0483:df11\|STM.*DFU"; then
             echo "No DFU device detected!"
             echo "Put keyboard in DFU mode and try again."
             exit 1
           fi
 
           echo "DFU device found! Flashing..."
-          sudo ${pkgs.dfu-util}/bin/dfu-util -a 0 -s 0x08000000:leave -D "$FIRMWARE"
+          ${pkgs.dfu-util}/bin/dfu-util -a 0 -s 0x08000000:leave -D "$FIRMWARE"
 
           echo ""
           echo "Done! Keyboard should restart automatically."
-          echo "If not working, unplug and replug the USB cable."
         '';
 
         # HID permissions helper
         fixHidPerms = pkgs.writeShellScriptBin "fix-hid-perms" ''
-          echo "Setting HID permissions for SZR35..."
+          echo "Setting HID permissions for Yxa..."
           sudo chmod 666 /dev/hidraw*
-          echo "Done! Overlay/trainer should now work."
+          echo "Done!"
         '';
 
       in {
-        # Development shell
         devShells.default = pkgs.mkShell {
           buildInputs = [
-            pythonEnv
+            rustToolchain
+            pkgs.pkg-config
+            pkgs.libxkbcommon
+            pkgs.libGL
+            pkgs.wayland
+            pkgs.xorg.libX11
+            pkgs.xorg.libXcursor
+            pkgs.xorg.libXrandr
+            pkgs.xorg.libXi
+            pkgs.vulkan-loader
+            pkgs.mold
+            pkgs.clang
             pkgs.dfu-util
-            pkgs.docker
             pkgs.usbutils
-            pkgs.git
             buildFirmware
             flashFirmware
             fixHidPerms
           ];
 
+          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+            pkgs.libxkbcommon
+            pkgs.libGL
+            pkgs.wayland
+            pkgs.xorg.libX11
+            pkgs.xorg.libXcursor
+            pkgs.xorg.libXrandr
+            pkgs.xorg.libXi
+            pkgs.vulkan-loader
+          ];
+
           shellHook = ''
             echo ""
             echo "╔═══════════════════════════════════════════════╗"
-            echo "║     SZR35 Miryoku Development Environment     ║"
+            echo "║           Yxa Keyboard Development            ║"
             echo "╚═══════════════════════════════════════════════╝"
             echo ""
             echo "Commands:"
-            echo "  trainer-hid    - Terminal trainer (auto layer detection)"
-            echo "  trainer        - Terminal trainer (manual mode)"
-            echo "  overlay        - GUI layer overlay"
-            echo "  build          - Build firmware (Docker)"
-            echo "  flash          - Flash firmware to keyboard"
-            echo "  fix-hid        - Fix HID permissions for overlay"
-            echo ""
-            echo "Keyboard must be in DFU mode to flash!"
+            echo "  visual-guide             - Run visual guide"
+            echo "  build-firmware [keymap]  - Build firmware (default: miryoku)"
+            echo "  flash-firmware [file]    - Flash firmware via DFU"
+            echo "  fix-hid-perms            - Fix HID device permissions"
             echo ""
 
-            # Aliases for convenience
-            alias trainer="python $PWD/overlay/miryoku_trainer.py"
-            alias trainer-hid="python $PWD/overlay/miryoku_trainer.py --hid"
-            alias overlay="python $PWD/overlay/miryoku_overlay.py"
-            alias build="build-firmware $PWD"
-            alias flash="flash-firmware $PWD/firmware/szrkbd_szr35_vial.bin"
-            alias fix-hid="fix-hid-perms"
+            alias visual-guide="cargo run --release --manifest-path visual-guide/Cargo.toml --"
           '';
         };
 
-        # Apps for running outside shell
         apps = {
-          overlay = {
+          visual-guide = {
             type = "app";
-            program = toString (pkgs.writeShellScript "overlay" ''
-              ${pythonEnv}/bin/python ${self}/overlay/miryoku_overlay.py "$@"
-            '');
+            program = "${yxaVisualGuide}/bin/yxa-visual-guide";
           };
 
-          trainer = {
-            type = "app";
-            program = toString (pkgs.writeShellScript "trainer" ''
-              ${pythonEnv}/bin/python ${self}/overlay/miryoku_trainer.py "$@"
-            '');
-          };
-
-          build = {
+          build-firmware = {
             type = "app";
             program = "${buildFirmware}/bin/build-firmware";
           };
 
-          flash = {
+          flash-firmware = {
             type = "app";
             program = "${flashFirmware}/bin/flash-firmware";
           };
 
-          default = self.apps.${system}.trainer;
+          default = self.apps.${system}.visual-guide;
         };
 
-        # Packages
         packages = {
+          default = yxaVisualGuide;
+          visual-guide = yxaVisualGuide;
           build-firmware = buildFirmware;
           flash-firmware = flashFirmware;
           fix-hid-perms = fixHidPerms;

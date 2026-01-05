@@ -1,0 +1,7 @@
+keyboard comes as Hardtochooseone it is the srz35 but thats a bad name since it isnt 35 keys its 36 keys.
+
+we are gonna rename it Yxa (swedish for "Axe") since its a split keyboard and I am half swedish.
+
+So the new name is Yxa 36-Key Split Ergonomic Keyboard we need to make sure to include information about the original keyboard being the szr35 in the description. Also we should include bootloader information, the fact it uses STM32F401 and comes with PlumBL bootloader preinstalled but that we overwrite it since the STM32F401 has a built-in DFU bootloader which means the PlumBL bootloader is not needed.
+
+we also want to reference that we got the keyboard from https://www.aliexpress.com/item/1005008486363216.html?spm=a2g0o.order_list.order_list_main.11.1b6e1802cEBXuO and include information about the seller and the product so we arn't infringing on any trademarks or copyrights or just being shady.

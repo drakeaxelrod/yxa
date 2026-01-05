@@ -1,244 +1,172 @@
-# SZR35 Miryoku
+# Yxa
 
-Complete setup for the SZR35 split keyboard with Miryoku layout, RGB layer indication, layer broadcasting, and Vial support.
+**Yxa** (Swedish for "Axe") — A 36-Key Split Ergonomic Keyboard with Miryoku Layout
 
-![Miryoku Layout](miryoku-kle-cover-miryoku_qmk.png)
+## Overview
+
+This repository contains:
+- **QMK Firmware** with [Miryoku](https://github.com/manna-harbour/miryoku) layout
+- **Visual Guide** for learning and training the Miryoku layout
+
+## Layout
+
+![Miryoku Layout Diagram](assets/miryoku-kle-cover-miryoku_qmk.png)
+
+The Yxa uses the **Miryoku** layout system with **Colemak-DH** as the base layer:
+
+| Layer | Index | Activation | Description |
+|-------|-------|------------|-------------|
+| BASE | 0 | Default | Colemak-DH with home row mods (GACS) |
+| EXTRA | 1 | Double-tap | QWERTY alternative |
+| TAP | 2 | Double-tap | No home row mods (gaming/fast typing) |
+| BUTTON | 3 | Hold Z/Slash | Mouse buttons, clipboard |
+| NAV | 4 | Hold Space | Arrow keys, navigation, Caps Word |
+| MOUSE | 5 | Hold Tab | Mouse movement, scroll wheel |
+| MEDIA | 6 | Hold Escape | Volume, playback, RGB controls |
+| NUM | 7 | Hold Backspace | Number pad layout |
+| SYM | 8 | Hold Enter | Symbols (shifted numbers) |
+| FUN | 9 | Hold Delete | Function keys F1-F12 |
+
+<center><img src="assets/miryoku-kle-base.png" width="49%"></img> <img src="assets/miryoku-kle-button.png" width="49%"></img> <img src="assets/miryoku-kle-nav.png" width="49%"></img> <img src="assets/miryoku-kle-mouse.png" width="49%"></img> <img src="assets/miryoku-kle-media.png" width="49%"></img> <img src="assets/miryoku-kle-num.png" width="49%"></img> <img src="assets/miryoku-kle-sym.png" width="49%"></img> <img src="assets/miryoku-kle-fun.png" width="49%"></img></center>
+
+
+### Key Features
+
+- **Home Row Mods (GACS)**: GUI, Alt, Ctrl, Shift on home row when held
+- **Layer-Tap Thumbs**: All 6 thumb keys access layers when held
+- **Caps Word**: Toggle with CW key in NAV layer (Shift+CW = Caps Lock)
+- **Tap Dance**: Double-tap top row in secondary layers to switch default layer
+- **Double-tap Boot**: Enter bootloader by double-tapping BOOT key
+
+## Hardware
+
+| Feature | Specification |
+|---------|---------------|
+| Layout | 36-Key Split Ergonomic (3x5+3) |
+| MCU | STM32F401CCU6 (BlackPill) |
+| Connection | Wired USB-C |
+| Inter-half | TRS Cable |
+| Switches | Hot-Swappable MX Compatible |
+| Backlighting | Per-Key RGB (WS2812) |
+
+Based on the **SZR35** / "Hardtochooseone" keyboard from AliExpress/Ebay.
+
+<center><img src="assets/keyboard-1.jpg" width="49%"></img> <img src="assets/keyboard-2.jpg" width="49%"></img> <img src="assets/keyboard-3.jpg" width="49%"></img> <img src="assets/keyboard-4.jpg" width="49%"></img> <img src="assets/keyboard-5.jpg" width="49%"></img> <img src="assets/keyboard-6.jpg" width="49%"></img> <img src="assets/keyboard-7.jpg" width="49%"></img> <img src="assets/keyboard-8.jpg" width="49%"></img></center>
+
 
 ## Quick Start
 
 ```bash
-# Enter the development shell
+cd yxa
 nix develop
 
-# Train with the layout (auto-detects layer from keyboard)
-trainer-hid
+# Build firmware
+build-firmware-docker    # Uses Docker (recommended)
+build-firmware           # Uses local QMK installation
 
-# Build firmware (first run clones vial-qmk, ~500MB)
-build
+# Flash firmware (enter DFU mode first)
+flash-yxa
 
-# Flash firmware (keyboard must be in DFU mode)
-flash
+# Run visual guide
+guide
 ```
 
-## Features
-
-- **Miryoku Layout**: Full [Miryoku](https://github.com/manna-harbour/miryoku) `split_3x5_3` with Colemak-DH
-- **Home Row Mods**: GUI/Alt/Ctrl/Shift on home row
-- **RGB Layer Colors**: Visual feedback showing active layer
-- **Layer Broadcasting**: Firmware sends layer changes over Raw HID
-- **Vial Support**: Edit keymap in real-time with Vial app
-- **Training Tools**: Terminal trainer and GUI overlay
-
-## Miryoku Layers
-
-| Layer | Index | Thumb Key | Hand | RGB Color |
-|-------|-------|-----------|------|-----------|
-| BASE | 0 | - | Both | Per-finger |
-| NAV | 1 | Space | Right | Cyan |
-| MOUSE | 2 | Tab | Right | Green |
-| MEDIA | 3 | Escape | Right | Magenta |
-| NUM | 4 | Backspace | Left | Yellow |
-| SYM | 5 | Enter | Left | Red |
-| FUN | 6 | Delete | Left | Blue |
-| BUTTON | 7 | Z or / | Both | Orange |
-
-### Layer Access
+## Firmware
 
 ```
-Left Thumb:  Esc→MEDIA  Space→NAV  Tab→MOUSE
-Right Thumb: Enter→SYM  Bksp→NUM   Del→FUN
-Pinkies:     Z→BUTTON               /→BUTTON
+firmware/
+├── keyboards/yxa/           # Keyboard definition
+│   ├── keyboard.json        # Matrix, pins, USB config
+│   ├── config.h             # Hardware config
+│   └── keymaps/miryoku/     # Keymap
+│       ├── keymap.c         # Layer definitions
+│       ├── rules.mk         # Feature flags
+│       └── yxa_features.c   # RGB & HID features
+└── users/manna-harbour_miryoku/  # Miryoku userspace
 ```
 
-## Project Structure
+### Enabled Features
 
-```
-szr35-miryoku/
-├── firmware/
-│   └── szrkbd_szr35_vial.bin     # Ready-to-flash firmware
-├── layouts/
-│   └── miryoku-kbd-layout.vil    # Vial layout file
-├── overlay/
-│   ├── miryoku_overlay.py        # GUI overlay (PyQt6)
-│   └── miryoku_trainer.py        # Terminal trainer (Rich)
-├── qmk/
-│   └── szrkbd/szr35/             # Complete keyboard definition
-│       ├── keyboard.json         # Matrix, RGB, split config
-│       ├── keymaps/vial/
-│       │   ├── keymap.c          # Miryoku + broadcast + RGB
-│       │   ├── rules.mk          # Features enabled
-│       │   └── vial.json         # Vial definition
-│       └── ld/                   # Linker scripts
-├── flake.nix                     # Nix dev environment
-└── README.md
-```
-
-## Commands
-
-All commands work inside `nix develop`:
-
-| Command | Description |
+| Feature | Description |
 |---------|-------------|
-| `trainer-hid` | Terminal trainer with auto layer detection |
-| `trainer` | Terminal trainer in manual mode (press 0-7) |
-| `overlay` | GUI layer overlay |
-| `build` | Build firmware using Docker |
-| `flash` | Flash firmware to keyboard |
-| `fix-hid` | Fix HID permissions for overlay |
-
-## Building Firmware
-
-```bash
-nix develop
-build
-```
-
-First run clones vial-qmk to `~/.cache/szr35-vial-qmk` (~500MB, one-time).
-
-Requirements:
-- Docker installed and running
-- Nix with flakes enabled
-
-## Flashing Firmware
-
-### Enter DFU Mode
-
-1. **Locate boot pads**: White square with 2 dots near thumb cluster
-   - It's the one **near the thumb cluster**, NOT opposite USB port
-2. **Short the pads** with tweezers or paperclip
-3. **While shorted**, plug in USB cable
-4. **Release** after keyboard is connected
-5. Run `flash`
-
-**Each half must be flashed separately.**
-
-### If Keyboard Won't Enter DFU
-
-- Use a data USB cable (not charge-only)
-- Hold boot pads for 5+ seconds while connecting
-- Verify with: `lsusb | grep -i stm`
-- Try: `sudo dmesg | tail` to check USB connection
-
-### If Keyboard is Bricked
-
-1. Unplug keyboard
-2. Short boot pads firmly
-3. While shorted, connect USB
-4. Wait 5 seconds, then release
-5. Run: `flash`
-
-The STM32F401 has a built-in DFU bootloader that cannot be erased.
-
-## Vial Layout
-
-The keymap is compiled into firmware, but you can also use Vial for real-time editing:
-
-1. Download [Vial](https://get.vial.today/)
-2. Connect keyboard
-3. Load `layouts/miryoku-kbd-layout.vil` (optional, for backup)
-4. Edit layout - changes save to keyboard EEPROM
-
-## Trainer & Overlay
-
-### Terminal Trainer
-
-```bash
-trainer-hid    # Auto-detects active layer from keyboard
-trainer        # Manual mode (press 0-7 to view layers)
-```
-
-### GUI Overlay
-
-```bash
-overlay        # Floating window showing current layer
-```
-
-### HID Permissions
-
-If trainer/overlay can't access keyboard:
-
-```bash
-fix-hid        # Quick fix (temporary)
-```
-
-## Firmware Features
+| MOUSEKEY | Mouse keys on MOUSE layer |
+| EXTRAKEY | Media/system keys |
+| CAPS_WORD | Smart caps for typing words in ALL CAPS |
+| TAP_DANCE | Double-tap layer switching |
+| KEY_OVERRIDE | Shift+Caps Word = Caps Lock |
+| RAW_HID | Layer/keypress broadcast to visual guide |
+| RGB_MATRIX | Per-key RGB with layer indication |
 
 ### RGB Layer Indication
 
-- **Base layer**: Per-finger colors
-  - Pinky: Cyan | Ring: Magenta | Middle: Green | Index: Yellow | Thumb: Blue
-- **Other layers**: Solid color (see table above)
+- **BASE/EXTRA/TAP**: Finger-colored keys (pinky=cyan, ring=magenta, middle=green, index=yellow, thumb=blue)
+- **Other layers**: Solid color matching layer (NAV=cyan, MOUSE=green, MEDIA=purple, NUM=yellow, SYM=red, FUN=blue)
 
-### Home Row Mods
+### Building
 
-| Finger | Left Hand | Right Hand |
-|--------|-----------|------------|
-| Pinky | GUI (A) | GUI (O) |
-| Ring | Alt (R) | Alt (I) |
-| Middle | Ctrl (S) | Ctrl (E) |
-| Index | Shift (T) | Shift (N) |
+Using Docker (recommended):
+```bash
+build-firmware-docker
+```
 
-### Layer Broadcasting
+Using local QMK:
+```bash
+build-firmware
+```
 
-Firmware broadcasts active layer over Raw HID:
-- Byte 0: `0x01` = layer state message
-- Byte 1: layer number (0-7)
+### Flashing
 
-This allows overlay/trainer to show current layer automatically.
+1. Enter DFU mode: Hold BOOT button while plugging in USB (or double-tap BOOT key in NAV/MOUSE/MEDIA layers)
+2. Run: `flash-yxa`
 
-### Other Features
+Each half must be flashed separately.
 
-- **Caps Word** (`CW_TOGG`): Auto-capitalizes until space/punctuation
-- **Mouse Keys**: Full mouse control on MOUSE layer
-- **Media Keys**: Volume, playback on MEDIA layer
-- **VialRGB**: Control RGB through Vial app
+## Visual Guide
 
-## Hardware
+An interactive overlay for learning the Miryoku layout:
 
-- **MCU**: STM32F401 (256KB flash, 64KB RAM)
-- **Bootloader**: Native STM32 DFU (0x08000000)
-- **Split**: USART serial (pin A9)
-- **RGB**: WS2812 (pin A7), 18 LEDs per half
-- **Crystal**: 16MHz external
+```bash
+# Run with HID keyboard feedback
+guide
 
-## Troubleshooting
+# Run without HID (demo mode)
+guide --no-hid
+```
 
-### Keyboard Not Detected
+### Features
 
-1. Check USB cable (must be data cable)
-2. Try different USB port
-3. Run `lsusb` to see if device appears
+- **Real-time layer display**: Shows current layer from keyboard via HID
+- **Keypress highlighting**: Keys light up as you press them
+- **Finger color coding**: Same color scheme as keyboard RGB
+- **Layer colors**: Match keyboard RGB for consistency
+- **Transparent overlay**: Stays on top of other windows
+- **Settings menu**: Right-click to adjust transparency, show/hide elements
 
-### DFU Flash Fails
+### Controls
 
-1. Make sure keyboard is in DFU mode (`lsusb | grep STM`)
-2. Run flash with sudo: `flash`
-3. Try: `sudo dfu-util -l` to list DFU devices
+- **Right-click**: Open settings menu
+- **Drag**: Move window
+- **Escape**: Close
 
-### Overlay Can't Connect
+## Project Structure
 
-1. Run `fix-hid` to set permissions
-2. Check if keyboard is connected: `ls /dev/hidraw*`
-3. Verify SZR35 is detected: `cat /sys/class/hidraw/hidraw*/device/uevent | grep SZR`
+```sh
+yxa/
+├── firmware/              # QMK firmware source
+│   ├── keyboards/yxa/     # Keyboard definition
+│   └── users/             # Miryoku userspace
+├── visual-guide/          # Rust visual guide
+│   ├── src/               # Source code
+│   └── layouts/           # Layout files (.vil)
+└── flake.nix              # Nix development environment
+```
 
-### Build Fails
+## Attribution
 
-1. Make sure Docker is running: `docker ps`
-2. Check disk space (vial-qmk needs ~500MB)
-3. Clear cache and retry: `rm -rf ~/.cache/szr35-vial-qmk`
-
-## Credits & Inspiration
-
-This project builds upon the work of several amazing open-source projects:
-
-- **[Miryoku](https://github.com/manna-harbour/miryoku)** by Manna Harbour - The ergonomic keyboard layout system this firmware implements
-- **[Miryoku QMK](https://github.com/manna-harbour/miryoku_qmk)** - Reference Miryoku implementation for QMK
-- **[Vial](https://get.vial.today/)** - Real-time keyboard configuration
-- **[Vial QMK](https://github.com/vial-kb/vial-qmk)** - QMK fork with Vial support
-- **[QMK Firmware](https://github.com/qmk/qmk_firmware)** - The keyboard firmware framework
-
-Layout visualization from [Miryoku KLE](https://github.com/manna-harbour/miryoku/tree/master/docs/reference).
+- **Miryoku Layout**: [manna-harbour/miryoku](https://github.com/manna-harbour/miryoku) by Manna Harbour
+- **Hardware**: SZR35 / "Hardtochooseone" split keyboard
 
 ## License
 
-GPL-2.0-or-later (QMK compatible)
+- Firmware: GPL-2.0-or-later (following QMK/Miryoku licensing)
+- Visual Guide: MIT

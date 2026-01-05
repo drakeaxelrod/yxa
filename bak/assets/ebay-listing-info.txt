@@ -1,0 +1,29 @@
+Layout:36-Key Split Ergonomic
+Connection:Wired USB-C
+Switches:Hot-Swappable MX Compatible
+Backlighting:Per-Key North RGB
+Firmware:VIAL (QMK-Based)
+Programmability:9 Layout Options
+Keycaps:XDA Profile (Included)
+Case Material:3D Printed
+Cable:TRS Inter-Half + USB-C
+Switch Options:HiFi or Silent Version
+
+🔧 Hot-Swappable Design
+
+MX hot-swap sockets allow easy switch replacement without soldering - customize your typing experience instantly
+🎨 Full RGB Backlighting
+
+North-facing RGB LEDs on every key create stunning lighting effects with full customization support
+⚡ VIAL Programmable
+
+Advanced firmware with 9 layout options - remap any key, create macros, and customize to your workflow
+✋ Ergonomic Split Layout
+
+35-key split design reduces wrist strain and promotes natural hand positioning for comfortable extended use
+🔌 Wired Connection
+
+Reliable USB-C connectivity - plug into either half with included TRS cable linking both sections
+🎯 XDA Profile Keycaps
+
+Uniform profile keycaps included for consistent finger travel and comfortable typing across all keys

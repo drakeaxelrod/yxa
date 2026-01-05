@@ -1,0 +1,36 @@
+[package]
+name = "szr35-trainer"
+version = "0.1.0"
+edition = "2021"
+description = "SZR35 keyboard layout trainer and overlay"
+
+[[bin]]
+name = "szr35-trainer"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+iced = { version = "0.13", features = ["tokio"] }
+ratatui = "0.29"
+crossterm = "0.28"
+notify = "7"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "time", "macros"] }
+anyhow = "1"
+regex = "1"
+dirs = "5"
+libc = "0.2"
+log = "0.4"
+env_logger = "0.11"
+
+[profile.dev]
+opt-level = 0
+debug = false
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+lto = true
+strip = true
