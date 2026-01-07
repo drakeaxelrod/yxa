@@ -56,4 +56,4 @@
 #define RGB_LAYER_BRIGHTNESS 255
 
 // Dim brightness for TAP layer indicator (0-255)
-#define RGB_TAP_BRIGHTNESS 1EEE00
+#define RGB_TAP_BRIGHTNESS 100

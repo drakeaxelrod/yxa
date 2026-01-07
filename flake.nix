@@ -78,23 +78,46 @@
 
           dontBuild = true;
 
-          installPhase = ''
+          installPhase = let
+            ldLibraryPath = pkgs.lib.makeLibraryPath [
+              pkgs.libxkbcommon
+              pkgs.libGL
+              pkgs.wayland
+              pkgs.xorg.libX11
+              pkgs.xorg.libXcursor
+              pkgs.xorg.libXrandr
+              pkgs.xorg.libXi
+              pkgs.vulkan-loader
+            ];
+          in ''
             runHook preInstall
 
-            # Install wrapped binary that uses bundled layout
+            # Create launcher script that auto-detects GPU at runtime
             mkdir -p $out/bin
-            makeWrapper ${yxaVisualGuideBin}/bin/yxa-visual-guide $out/bin/yxa-visual-guide \
-              --add-flags "--file $out/share/yxa/layouts/miryoku-kbd-layout.vil" \
-              --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath [
-                pkgs.libxkbcommon
-                pkgs.libGL
-                pkgs.wayland
-                pkgs.xorg.libX11
-                pkgs.xorg.libXcursor
-                pkgs.xorg.libXrandr
-                pkgs.xorg.libXi
-                pkgs.vulkan-loader
-              ]}"
+            cat > $out/bin/yxa-visual-guide << LAUNCHER
+#!/usr/bin/env bash
+# Auto-detect GPU for wgpu backend selection
+# Prefer discrete GPU (NVIDIA/AMD) over integrated
+
+if [ -z "\$WGPU_BACKEND" ]; then
+  export WGPU_BACKEND=vulkan
+fi
+
+if [ -z "\$WGPU_ADAPTER_NAME" ]; then
+  # Check for NVIDIA GPU
+  if command -v nvidia-smi &>/dev/null || lspci 2>/dev/null | grep -qi nvidia; then
+    export WGPU_ADAPTER_NAME="NVIDIA"
+  # Check for AMD discrete GPU (not APU)
+  elif lspci 2>/dev/null | grep -i vga | grep -qi "radeon\|navi\|vega"; then
+    export WGPU_ADAPTER_NAME="AMD"
+  fi
+  # Otherwise let wgpu auto-select
+fi
+
+export LD_LIBRARY_PATH="${ldLibraryPath}\''${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+exec ${yxaVisualGuideBin}/bin/yxa-visual-guide --file $out/share/yxa/layouts/miryoku-kbd-layout.vil "\$@"
+LAUNCHER
+            chmod +x $out/bin/yxa-visual-guide
 
             # Install layout files
             mkdir -p $out/share/yxa/layouts
