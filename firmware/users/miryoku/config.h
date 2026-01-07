@@ -4,7 +4,7 @@
 
 #pragma once
 
-#define TAPPING_TERM 200
+#define TAPPING_TERM 220
 #define QUICK_TAP_TERM 0
 
 #define AUTO_SHIFT_TIMEOUT TAPPING_TERM
