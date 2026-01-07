@@ -96,22 +96,34 @@
             mkdir -p $out/bin
             cat > $out/bin/yxa-visual-guide << LAUNCHER
 #!/usr/bin/env bash
-# Auto-detect GPU for wgpu backend selection
-# Prefer discrete GPU (NVIDIA/AMD) over integrated
+# Auto-detect GPU for wgpu/Vulkan backend selection
+# On multi-GPU systems (especially NVIDIA + AMD iGPU), force the discrete GPU
+# using VK_ICD_FILENAMES which wgpu respects for adapter selection
 
 if [ -z "\$WGPU_BACKEND" ]; then
   export WGPU_BACKEND=vulkan
 fi
 
-if [ -z "\$WGPU_ADAPTER_NAME" ]; then
-  # Check for NVIDIA GPU
-  if command -v nvidia-smi &>/dev/null || lspci 2>/dev/null | grep -qi nvidia; then
-    export WGPU_ADAPTER_NAME="NVIDIA"
-  # Check for AMD discrete GPU (not APU)
-  elif lspci 2>/dev/null | grep -i vga | grep -qi "radeon\|navi\|vega"; then
-    export WGPU_ADAPTER_NAME="AMD"
+# Force discrete GPU via Vulkan ICD if not already set
+if [ -z "\$VK_ICD_FILENAMES" ]; then
+  # Check for NVIDIA GPU - use nvidia ICD
+  if [ -f /usr/share/vulkan/icd.d/nvidia_icd.json ]; then
+    export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
+  elif [ -f /run/opengl-driver/share/vulkan/icd.d/nvidia_icd.x86_64.json ]; then
+    # NixOS path
+    export VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.x86_64.json
+  # Check for AMD discrete GPU (RADV)
+  elif [ -f /usr/share/vulkan/icd.d/radeon_icd.x86_64.json ]; then
+    export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json
+  elif [ -f /run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json ]; then
+    export VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json
   fi
-  # Otherwise let wgpu auto-select
+fi
+
+# Also set NVIDIA-specific Wayland env vars if NVIDIA is detected
+if [[ "\$VK_ICD_FILENAMES" == *nvidia* ]] || command -v nvidia-smi &>/dev/null; then
+  export __GLX_VENDOR_LIBRARY_NAME=\''${__GLX_VENDOR_LIBRARY_NAME:-nvidia}
+  export GBM_BACKEND=\''${GBM_BACKEND:-nvidia-drm}
 fi
 
 export LD_LIBRARY_PATH="${ldLibraryPath}\''${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
