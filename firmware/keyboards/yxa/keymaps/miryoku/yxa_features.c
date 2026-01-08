@@ -182,6 +182,10 @@ void housekeeping_task_user(void) {
     }
 }
 
+// Bilateral combination tracking (declared in tap-hold section below)
+extern bool last_key_left_hand;
+extern bool has_pending_key;
+
 // Keypress broadcast with batching
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     uint8_t type = record->event.pressed ? MSG_KEY_PRESS : MSG_KEY_RELEASE;
@@ -190,6 +194,12 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 
     // Add to batch for efficient transmission
     add_event_to_batch(type, row, col);
+
+    // Track key hand for bilateral combinations
+    if (record->event.pressed) {
+        last_key_left_hand = (row < 4);  // Left hand: rows 0-3
+        has_pending_key = true;
+    }
 
     return true;
 }
@@ -203,6 +213,7 @@ void post_process_record_user(uint16_t keycode, keyrecord_t *record) {
     uint8_t col = record->event.key.col;
 
     add_event_to_batch(type, row, col);
+
 }
 
 // Handle HID requests from host
@@ -223,6 +234,79 @@ bool raw_hid_receive_kb(uint8_t *data, uint8_t length) {
     }
     return false;
 }
+
+// ============================================================================
+// Miryoku Tap-Hold Configuration
+// ============================================================================
+
+// Check if keycode is a mod-tap (home row mods: GACS on ARST/NEIO)
+static bool is_mod_tap(uint16_t keycode) {
+    return (keycode >= QK_MOD_TAP && keycode <= QK_MOD_TAP_MAX);
+}
+
+// Check if keycode is a layer-tap (thumb keys)
+static bool is_layer_tap(uint16_t keycode) {
+    return (keycode >= QK_LAYER_TAP && keycode <= QK_LAYER_TAP_MAX);
+}
+
+// Check which hand a key is on (for bilateral combinations)
+// Left hand: rows 0-3, Right hand: rows 4-7
+static bool is_left_hand(keyrecord_t *record) {
+    return record->event.key.row < 4;
+}
+
+// Track the last key pressed for bilateral combination check
+bool last_key_left_hand = false;
+bool has_pending_key = false;
+
+// Per-key tapping term (configured in config.h)
+uint16_t get_tapping_term(uint16_t keycode, keyrecord_t *record) {
+    if (is_mod_tap(keycode)) {
+        return TAPPING_TERM_MOD_TAP;
+    }
+    if (is_layer_tap(keycode)) {
+        return TAPPING_TERM_LAYER;
+    }
+    return TAPPING_TERM;
+}
+
+// Per-key permissive hold
+bool get_permissive_hold(uint16_t keycode, keyrecord_t *record) {
+    // Disable for home row mods - prevents accidental modifier activation
+    // when rolling keys quickly during normal typing
+    if (is_mod_tap(keycode)) {
+        return false;
+    }
+    // Enable for layer-taps - makes layer switches more responsive
+    // when you press layer key then another key quickly
+    if (is_layer_tap(keycode)) {
+        return true;
+    }
+    return true;
+}
+
+// Bilateral combinations: Only allow mod-tap hold when the other key
+// is pressed on the OPPOSITE hand. This prevents accidental mods when
+// rolling keys on the same hand (e.g., typing "as" won't trigger Alt+S)
+bool get_hold_on_other_key_press(uint16_t keycode, keyrecord_t *record) {
+    // For mod-taps (home row mods), only trigger hold if
+    // the other key is on the opposite hand
+    if (is_mod_tap(keycode)) {
+        // If we have a pending key from the other hand, allow hold
+        if (has_pending_key) {
+            bool mod_on_left = is_left_hand(record);
+            // Bilateral: only hold if hands are different
+            return mod_on_left != last_key_left_hand;
+        }
+        return false;
+    }
+    // Layer-taps: allow hold on any other key press for responsiveness
+    if (is_layer_tap(keycode)) {
+        return true;
+    }
+    return false;
+}
+
 
 // RGB Matrix layer indication
 #ifdef RGB_MATRIX_ENABLE
@@ -250,13 +334,13 @@ const uint8_t FINGER_MAP[36] = {
     0, 1, 2, 3, 3,  0, 1, 2, 3, 3,  0, 1, 2, 3, 3,  4, 4, 4
 };
 
-// HSV colors for finger identification (base layers)
-const uint8_t FINGER_COLORS[][3] = {
-    {128, 255, 180}, // 0: pinky - cyan
-    {213, 255, 180}, // 1: ring - purple
-    {85, 255, 180},  // 2: middle - green
-    {43, 255, 180},  // 3: index/inner - yellow
-    {170, 255, 180}  // 4: thumb - blue
+// HS colors for finger identification (brightness applied from config.h)
+const uint8_t FINGER_COLORS[][2] = {
+    {128, 255}, // 0: pinky - cyan
+    {213, 255}, // 1: ring - purple
+    {85, 255},  // 2: middle - green
+    {43, 255},  // 3: index/inner - yellow
+    {170, 255}  // 4: thumb - blue
 };
 
 // Helper to set LED color from HSV
@@ -269,48 +353,64 @@ static inline void set_led_hsv(uint8_t led, uint8_t h, uint8_t s, uint8_t v) {
 bool rgb_matrix_indicators_advanced_user(uint8_t led_min, uint8_t led_max) {
     uint8_t layer = get_effective_layer();
 
-    // Base layers (0-2): Show finger colors for home row identification
-    if (layer <= 2) {
+    // Layer 0 (BASE/Colemak-DH): Finger colors - main Miryoku layer
+    if (layer == 0) {
         for (uint8_t i = led_min; i < led_max && i < 36; i++) {
             uint8_t finger = FINGER_MAP[i];
-            set_led_hsv(i, FINGER_COLORS[finger][0], FINGER_COLORS[finger][1], FINGER_COLORS[finger][2]);
+            set_led_hsv(i, FINGER_COLORS[finger][0], FINGER_COLORS[finger][1], RGB_LAYER_BRIGHTNESS);
+        }
+        return false;
+    }
+
+    // Layer 1 (EXTRA/QWERTY): White
+    if (layer == 1) {
+        for (uint8_t i = led_min; i < led_max && i < 36; i++) {
+            set_led_hsv(i, 0, 0, RGB_LAYER_BRIGHTNESS);  // white
+        }
+        return false;
+    }
+
+    // Layer 2 (TAP): Dim cyan - tap-only mode indicator
+    if (layer == 2) {
+        for (uint8_t i = led_min; i < led_max && i < 36; i++) {
+            set_led_hsv(i, 128, 255, RGB_TAP_BRIGHTNESS);  // dim cyan
         }
         return false;
     }
 
     // For layers 3-9, color ALL keys in the layer's designated color
-    uint8_t h, s, v;
+    uint8_t h, s;
 
     switch (layer) {
         case 3:  // BUTTON - orange
-            h = 21; s = 255; v = 200;
+            h = 21; s = 255;
             break;
         case 4:  // NAV - cyan
-            h = 128; s = 255; v = 200;
+            h = 128; s = 255;
             break;
         case 5:  // MOUSE - yellow
-            h = 43; s = 255; v = 200;
+            h = 43; s = 255;
             break;
         case 6:  // MEDIA - purple
-            h = 213; s = 255; v = 200;
+            h = 213; s = 255;
             break;
         case 7:  // NUM - blue
-            h = 170; s = 255; v = 200;
+            h = 170; s = 255;
             break;
         case 8:  // SYM - green
-            h = 85; s = 255; v = 200;
+            h = 85; s = 255;
             break;
         case 9:  // FUN - red
-            h = 0; s = 255; v = 200;
+            h = 0; s = 255;
             break;
         default:
-            h = 0; s = 0; v = 200;  // white fallback
+            h = 0; s = 0;  // white fallback
             break;
     }
 
     // Apply the solid color to all LEDs in range
     for (uint8_t i = led_min; i < led_max && i < 36; i++) {
-        set_led_hsv(i, h, s, v);
+        set_led_hsv(i, h, s, RGB_LAYER_BRIGHTNESS);
     }
 
     return false;

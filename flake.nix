@@ -78,23 +78,58 @@
 
           dontBuild = true;
 
-          installPhase = ''
+          installPhase = let
+            ldLibraryPath = pkgs.lib.makeLibraryPath [
+              pkgs.libxkbcommon
+              pkgs.libGL
+              pkgs.wayland
+              pkgs.xorg.libX11
+              pkgs.xorg.libXcursor
+              pkgs.xorg.libXrandr
+              pkgs.xorg.libXi
+              pkgs.vulkan-loader
+            ];
+          in ''
             runHook preInstall
 
-            # Install wrapped binary that uses bundled layout
+            # Create launcher script that auto-detects GPU at runtime
             mkdir -p $out/bin
-            makeWrapper ${yxaVisualGuideBin}/bin/yxa-visual-guide $out/bin/yxa-visual-guide \
-              --add-flags "--file $out/share/yxa/layouts/miryoku-kbd-layout.vil" \
-              --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath [
-                pkgs.libxkbcommon
-                pkgs.libGL
-                pkgs.wayland
-                pkgs.xorg.libX11
-                pkgs.xorg.libXcursor
-                pkgs.xorg.libXrandr
-                pkgs.xorg.libXi
-                pkgs.vulkan-loader
-              ]}"
+            cat > $out/bin/yxa-visual-guide << LAUNCHER
+#!/usr/bin/env bash
+# Auto-detect GPU for wgpu/Vulkan backend selection
+# On multi-GPU systems (especially NVIDIA + AMD iGPU), force the discrete GPU
+# using VK_ICD_FILENAMES which wgpu respects for adapter selection
+
+if [ -z "\$WGPU_BACKEND" ]; then
+  export WGPU_BACKEND=vulkan
+fi
+
+# Force discrete GPU via Vulkan ICD if not already set
+if [ -z "\$VK_ICD_FILENAMES" ]; then
+  # Check for NVIDIA GPU - use nvidia ICD
+  if [ -f /usr/share/vulkan/icd.d/nvidia_icd.json ]; then
+    export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
+  elif [ -f /run/opengl-driver/share/vulkan/icd.d/nvidia_icd.x86_64.json ]; then
+    # NixOS path
+    export VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.x86_64.json
+  # Check for AMD discrete GPU (RADV)
+  elif [ -f /usr/share/vulkan/icd.d/radeon_icd.x86_64.json ]; then
+    export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.x86_64.json
+  elif [ -f /run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json ]; then
+    export VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/radeon_icd.x86_64.json
+  fi
+fi
+
+# Also set NVIDIA-specific Wayland env vars if NVIDIA is detected
+if [[ "\$VK_ICD_FILENAMES" == *nvidia* ]] || command -v nvidia-smi &>/dev/null; then
+  export __GLX_VENDOR_LIBRARY_NAME=\''${__GLX_VENDOR_LIBRARY_NAME:-nvidia}
+  export GBM_BACKEND=\''${GBM_BACKEND:-nvidia-drm}
+fi
+
+export LD_LIBRARY_PATH="${ldLibraryPath}\''${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+exec ${yxaVisualGuideBin}/bin/yxa-visual-guide --file $out/share/yxa/layouts/miryoku-kbd-layout.vil "\$@"
+LAUNCHER
+            chmod +x $out/bin/yxa-visual-guide
 
             # Install layout files
             mkdir -p $out/share/yxa/layouts
